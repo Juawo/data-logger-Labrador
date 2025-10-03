@@ -51,7 +51,15 @@ def log_data():
         pass
 
     timestamp = datetime.utcnow().isoformat()
-    log_line = f"{timestamp},{temp},{humi},{bpm},{spo2}\n"
+    log_line = (
+    f"--- Registro {timestamp} ---\n"
+    f"Temperatura : {temp:.2f} °C\n"
+    f"Umidade     : {humi:.2f} %\n"
+    f"BPM         : {bpm}\n"
+    f"SpO2        : {spo2}%\n"
+    f"-----------------------------\n\n"
+)
+
 
     with open(LOG_PATH, "a") as f:
         f.write(log_line)
