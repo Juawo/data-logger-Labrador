@@ -1,110 +1,146 @@
-# Código adaptado para dois barramentos I2C
-from periphery import I2C
+import smbus2
 import time
+import datetime
 
-# --- CONFIGURAÇÕES DOS BARRAMENTOS ---
-# Barramento para o AHT10 (Pinos 3 e 5)
-I2C_BUS_AHT10_PATH = "/dev/i2c-2"
-# Barramento para o MAX30102 (Pinos 8 e 10)
-I2C_BUS_MAX_PATH = "/dev/i2c-0"
+# ==========================================================
+# CONFIGURAÇÕES GERAIS
+# ==========================================================
+I2C_BUS_NUMBER = 2  # Apenas o número do barramento I2C (/dev/i2c-2)
+bus = smbus2.SMBus(I2C_BUS_NUMBER)
 
-# --- CONFIGURAÇÕES DO SENSOR AHT10 ---
-AHT10_I2C_ADDRESS = 0x38
+# ATENÇÃO: Verifique e corrija o caminho para o seu cartão SD!
+# O nome 'CARTAO M' pode precisar ser ajustado. Use 'ls /media/caninos/' para ver o nome correto.
+LOG_FILE = "/media/sdcard/dados_sensores.txt"
 
-# --- CONFIGURAÇÕES DO SENSOR MAX30102 ---
-MAX30102_I2C_ADDRESS = 0x57
-
-# --- (O restante das constantes e funções permanecem as mesmas) ---
+# ==========================================================
+# SEÇÃO: SENSOR AHT10 (Temperatura e Umidade)
+# ==========================================================
+AHT10_ADDRESS = 0x38
 AHT10_CMD_INIT = [0xE1, 0x08, 0x00]
 AHT10_CMD_MEASURE = [0xAC, 0x33, 0x00]
-MAX30102_REG_MODE_CONFIG = 0x09
-MAX30102_REG_SPO2_CONFIG = 0x0A
-MAX30102_REG_LED_PULSE_AMP1 = 0x0C
-MAX30102_REG_LED_PULSE_AMP2 = 0x0D
-MAX30102_REG_FIFO_DATA = 0x07
 
-def aht10_init(i2c):
+def init_aht10():
+    """Inicializa o AHT10 (calibração)."""
     try:
-        i2c.transfer(AHT10_I2C_ADDRESS, [I2C.Message(AHT10_CMD_INIT)])
+        # A biblioteca smbus2 não tem um comando de escrita simples, então usamos um truque
+        # enviando o comando como se estivéssemos escrevendo no 'registro' 0xE1
+        bus.write_i2c_block_data(AHT10_ADDRESS, AHT10_CMD_INIT[0], AHT10_CMD_INIT[1:])
         time.sleep(0.02)
-        print("Sensor AHT10 inicializado com sucesso.")
+        print("Sensor AHT10 inicializado.")
         return True
     except Exception as e:
         print(f"Erro ao inicializar AHT10: {e}")
         return False
 
-def aht10_read(i2c):
-    i2c.transfer(AHT10_I2C_ADDRESS, [I2C.Message(AHT10_CMD_MEASURE)])
-    time.sleep(0.08)
-    read_buf = [0] * 6
-    read_msg = I2C.Message(read_buf, read=True)
-    i2c.transfer(AHT10_I2C_ADDRESS, [read_msg])
-    data = read_msg.data
-    humidity_raw = ((data[1] << 16) | (data[2] << 8) | data[3]) >> 4
-    temperature_raw = ((data[3] & 0x0F) << 16) | (data[4] << 8) | data[5]
-    humidity = (humidity_raw / 1048576) * 100
-    temperature = (temperature_raw / 1048576) * 200 - 50
-    return temperature, humidity
-
-def max30102_init(i2c):
+def read_aht10():
+    """Lê temperatura (°C) e umidade (%) do AHT10."""
     try:
-        i2c.transfer(MAX30102_I2C_ADDRESS, [I2C.Message([MAX30102_REG_MODE_CONFIG, 0x40])])
+        # Envia o comando de medição
+        bus.write_i2c_block_data(AHT10_ADDRESS, AHT10_CMD_MEASURE[0], AHT10_CMD_MEASURE[1:])
+        time.sleep(0.08)
+
+        # Lê os 6 bytes de dados
+        data = bus.read_i2c_block_data(AHT10_ADDRESS, 0x00, 6) # O 0x00 é um placeholder
+
+        hum_raw = ((data[1] << 16) | (data[2] << 8) | data[3]) >> 4
+        temp_raw = ((data[3] & 0x0F) << 16) | (data[4] << 8) | data[5]
+
+        humidity = (hum_raw / 1048576) * 100
+        temperature = (temp_raw / 1048576) * 200 - 50
+        return temperature, humidity
+    except Exception as e:
+        # print(f"Erro na leitura do AHT10: {e}") # Descomente para depurar
+        return None
+
+# ==========================================================
+# SEÇÃO: SENSOR MAX30102 (Oxímetro e Batimentos)
+# ==========================================================
+MAX30102_ADDRESS = 0x57
+MAX30102_REG_MODE_CONFIG = 0x09
+MAX30102_REG_SPO2_CONFIG = 0x0A
+MAX30102_REG_LED_PULSE_AMP1 = 0x0C # IR
+MAX30102_REG_LED_PULSE_AMP2 = 0x0D # Vermelho
+MAX30102_REG_FIFO_DATA = 0x07
+
+def init_max30102():
+    """Inicializa e configura o MAX30102."""
+    try:
+        # Reset
+        bus.write_byte_data(MAX30102_ADDRESS, MAX30102_REG_MODE_CONFIG, 0x40)
         time.sleep(0.1)
-        i2c.transfer(MAX30102_I2C_ADDRESS, [I2C.Message([MAX30102_REG_MODE_CONFIG, 0x03])])
-        i2c.transfer(MAX30102_I2C_ADDRESS, [I2C.Message([MAX30102_REG_SPO2_CONFIG, 0x67])])
-        i2c.transfer(MAX30102_I2C_ADDRESS, [I2C.Message([MAX30102_REG_LED_PULSE_AMP1, 0x1F])])
-        i2c.transfer(MAX30102_I2C_ADDRESS, [I2C.Message([MAX30102_REG_LED_PULSE_AMP2, 0x1F])])
-        print("Sensor MAX30102 inicializado com sucesso.")
+        # Modo SpO2
+        bus.write_byte_data(MAX30102_ADDRESS, MAX30102_REG_MODE_CONFIG, 0x03)
+        # Config SpO2 (ADC Range, Sample Rate, etc)
+        bus.write_byte_data(MAX30102_ADDRESS, MAX30102_REG_SPO2_CONFIG, 0x67)
+        # Brilho dos LEDs
+        bus.write_byte_data(MAX30102_ADDRESS, MAX30102_REG_LED_PULSE_AMP1, 0x1F) # IR
+        bus.write_byte_data(MAX30102_ADDRESS, MAX30102_REG_LED_PULSE_AMP2, 0x1F) # Vermelho
+        print("Sensor MAX30102 inicializado.")
         return True
     except Exception as e:
         print(f"Erro ao inicializar MAX30102: {e}")
         return False
 
-def max30102_read_raw(i2c):
-    read_buf = [0] * 6
-    write_msg = I2C.Message([MAX30102_REG_FIFO_DATA])
-    read_msg = I2C.Message(read_buf, read=True)
-    i2c.transfer(MAX30102_I2C_ADDRESS, [write_msg, read_msg])
-    data = read_msg.data
-    red_raw = (data[0] << 16) | (data[1] << 8) | data[2]
-    ir_raw = (data[3] << 16) | (data[4] << 8) | data[5]
-    return ir_raw, red_raw
-
-# --- EXECUÇÃO PRINCIPAL ---
-if __name__ == "__main__":
-    i2c_aht10 = None
-    i2c_max = None
+def read_max30102_raw():
+    """Lê dados brutos (IR e Red) do MAX30102."""
     try:
-        # Abre os dois barramentos I2C separadamente
-        i2c_aht10 = I2C(I2C_BUS_AHT10_PATH)
-        i2c_max = I2C(I2C_BUS_MAX_PATH)
-        print(f"Barramento AHT10 em '{I2C_BUS_AHT10_PATH}' aberto.")
-        print(f"Barramento MAX30102 em '{I2C_BUS_MAX_PATH}' aberto.")
-
-        # Inicializa cada sensor em seu respectivo barramento
-        aht10_ok = aht10_init(i2c_aht10)
-        max30102_ok = max30102_init(i2c_max)
-
-        while True:
-            # Lê cada sensor usando seu próprio objeto i2c
-            if aht10_ok:
-                temp, hum = aht10_read(i2c_aht10)
-                print(f"AHT10 -> Temperatura: {temp:.2f} C, Umidade: {hum:.2f} %")
-
-            if max30102_ok:
-                ir, red = max30102_read_raw(i2c_max)
-                print(f"MAX30102 -> Raw IR: {ir}, Raw Red: {red}")
-            
-            print("-" * 30)
-            time.sleep(1)
-
+        # Lê 6 bytes a partir do registrador de dados do FIFO (0x07)
+        data = bus.read_i2c_block_data(MAX30102_ADDRESS, MAX30102_REG_FIFO_DATA, 6)
+        
+        red_raw = (data[0] << 16) | (data[1] << 8) | data[2]
+        ir_raw = (data[3] << 16) | (data[4] << 8) | data[5]
+        return ir_raw, red_raw
     except Exception as e:
-        print(f"Ocorreu um erro geral: {e}")
+        # print(f"Erro na leitura do MAX30102: {e}") # Descomente para depurar
+        return None
+
+# ==========================================================
+# FUNÇÃO MAIN
+# ==========================================================
+def main():
+    """Loop principal de leitura dos sensores."""
+    # Inicializa os sensores
+    aht10_ok = init_aht10()
+    max30102_ok = init_max30102()
+
+    try:
+        while True:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Faz a leitura de cada sensor
+            aht_data = read_aht10()
+            max_data = read_max30102_raw()
+            
+            # Formata a string de log para o AHT10
+            if aht_data:
+                aht_str = f"Temp: {aht_data[0]:.1f} C, Umid: {aht_data[1]:.1f}%"
+            else:
+                aht_str = "AHT10: Falha na leitura"
+
+            # Formata a string de log para o MAX30102
+            if max_data:
+                max_str = f"IR: {max_data[0]}, Red: {max_data[1]}"
+            else:
+                max_str = "MAX30102: Falha na leitura"
+           
+            log_line = f"[{timestamp}] {aht_str} | {max_str}"
+
+            print(log_line)
+            try:
+                with open(LOG_FILE, "a") as f:
+                    f.write(log_line + "\n")
+            except Exception as e:
+                print(f"ERRO AO ESCREVER NO ARQUIVO: {e}")
+
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nLeitura encerrada pelo usuário.")
     finally:
-        # Fecha ambas as conexões
-        if i2c_aht10:
-            i2c_aht10.close()
-            print("Conexão I2C AHT10 fechada.")
-        if i2c_max:
-            i2c_max.close()
-            print("Conexão I2C MAX30102 fechada.")
+        bus.close()
+        print("Barramento I2C fechado.")
+
+# ==========================================================
+# PONTO DE ENTRADA
+# ==========================================================
+if __name__ == "__main__":
+    main()
