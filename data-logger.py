@@ -11,7 +11,7 @@ AHT10_ADDR = 0x38
 MAX30102_ADDR = 0x57
 
 # Inicializa I2C no /dev/i2c-0 (confirmar com "ls /dev/i2c-*")
-i2c = I2C("/dev/i2c-0")
+i2c = I2C("/dev/i2c-2")
 
 def read_aht10():
     """Leitura de temperatura e umidade do AHT10"""
