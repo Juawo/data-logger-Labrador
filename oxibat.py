@@ -5,7 +5,7 @@ from datetime import datetime
 LOG_PATH = "/media/sdcard/datalog_oxibat.txt"
 MAX30102_ADDR = 0x57
 
-i2c = I2C("/dev/i2c-0")  # ajuste se for i2c-1
+i2c = I2C("/dev/i2c-2")  # ajuste se for i2c-1
 
 def write_reg(addr, reg, value):
     msgs = [I2C.Message([reg, value])]

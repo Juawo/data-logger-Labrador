@@ -5,7 +5,7 @@ from datetime import datetime
 LOG_PATH = "/media/sdcard/datalog_temp_umd.txt"
 AHT10_ADDR = 0x38
 
-i2c = I2C("/dev/i2c-0")  # ajuste se for i2c-1 na Labrador
+i2c = I2C("/dev/i2c-2")  # ajuste se for i2c-1 na Labrador
 
 def read_aht10():
     # Inicializa leitura
