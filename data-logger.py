@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 # Caminho do log
-LOG_PATH = "/media/sdcard/datalog_sensores.txt"
+LOG_PATH = "/media/sdcard/dados_sensores.txt"
 
 # Endereços I2C (dependem do sensor)
 AHT10_ADDR = 0x38
